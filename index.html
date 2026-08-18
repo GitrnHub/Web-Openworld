@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>OfficeWalk3D · WebGPU Voxel XPBD</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="app" aria-label="OfficeWalk3D WebGPU Voxel XPBD 破坏演示"></main>
+  <section id="start-panel" class="panel start-panel">
+    <div class="eyebrow">OFFICEWALK3D · WEBGPU VOXEL XPBD · V0.9.4</div>
+    <h1>体积破坏 + 刚体形状碰撞 + Elevated MdX3Rr HQ+ 可破坏山地</h1>
+    <p>滚轮切换球形 / 飞盘 / 泥巴 / 炸弹；左键单击发射，按住左键以 5 发/秒连续发射。1F 可直接进入室外：建筑周边先保留约 176×156 m 平坦庭院，再以 58 m 软过渡接入 Elevated 山地，不再出门贴着陡坡。室内主要 PBR 材质升级为无缝程序化贴图与米制 UV；飞盘、泥巴、炸弹和可破坏地形逻辑保留。</p>
+    <div class="feature-grid">
+      <div><b>可调断口精度</b><span>标准 / 精细 / 高精度 / 极高；提高体素采样与等值面密度，切换后自动重新加载</span></div>
+      <div><b>WebGPU XPBD</b><span>距离/剪切约束在 WGSL compute 中迭代</span></div>
+      <div><b>米制 PBR 贴图</b><span>主要静态材质使用无缝程序化纹理、正确色彩空间、mipmap / anisotropy，并按世界米数统一 UV 尺度</span></div>
+      <div><b>Rigid-body shape collision</b><span>大块使用 OBB、小碎片/球弹使用 Sphere，具有质量、角速度、摩擦、反弹与休眠</span></div>
+      <div><b>泥巴 / 硬化</b><span>湿泥不触发主体断裂，碰撞后贴合表面并硬化；连续命中会融合扩大，硬化层可再次被击碎</span></div>
+      <div><b>平坦庭院 + Elevated HQ</b><span>建筑四周约 56 m 平坦余量，随后 58 m 缓坡过渡；远处仍是默认 641²（约 41 万）真实可破坏山地</span></div>
+      <div><b>炸弹</b><span>滚轮选择后以抛物线投掷；触地/碰撞/引信触发爆炸，冲击附近结构并生成大坑</span></div>
+    </div>
+
+    <label class="quality-row" for="quality-select"><span><b>断口精度</b><small id="quality-value">高精度 · 1.22×</small></span><select id="quality-select"><option value="standard">标准 · 更快</option><option value="fine">精细 · 平衡</option><option value="high" selected>高精度 · 推荐</option><option value="ultra">极高 · 更吃显存/初始化</option></select></label>
+    <label class="quality-row" for="terrain-quality-select"><span><b>地形几何精度</b><small id="terrain-quality-value">高精度 · 641² / 12-oct</small></span><select id="terrain-quality-select"><option value="balanced">平衡 · 513² / 10-oct</option><option value="high" selected>高精度 · 641² / 12-oct</option><option value="ultra">极高 · 769² / 15-oct</option></select></label>
+    <p id="init-text" class="fineprint">正在准备 WebGPU…</p>
+    <button id="start-button" type="button" disabled>初始化 WebGPU…</button>
+    <p class="fineprint">在线版通过 HTTPS 直接运行；本地调试请使用 HTTP 服务器。按 Esc 释放鼠标。</p>
+  </section>
+
+  <div id="crosshair" aria-hidden="true"><span></span><span></span></div>
+  <div id="hit-marker" aria-hidden="true">×</div>
+  <aside id="hud-left" class="hud hud-left">
+    <div class="hud-title">OFFICEWALK3D / VOXEL DAMAGE LAB</div>
+    <div id="floor-label">1F · 大厅与材料测试区</div>
+    <div id="target-label">准星目标：—</div>
+    <div id="renderer-label">WebGPU：初始化中</div>
+    <div id="weapon-label">弹体：球形</div>
+  </aside>
+  <aside id="hud-right" class="hud hud-right">
+    <div><span>FPS</span><b id="fps-value">—</b></div>
+    <div><span>活动弹体</span><b id="projectile-value">0</b></div>
+    <div><span>XPBD 节点</span><b id="particle-value">0</b></div>
+    <div><span>XPBD 约束</span><b id="constraint-value">0</b></div>
+    <div><span>活动碎片</span><b id="fragment-value">0</b></div>
+    <div><span>休眠实例</span><b id="sleep-value">0</b></div>
+    <div><span>Rigid bodies</span><b id="rigid-value">0</b></div>
+    <div><span>Draw calls</span><b id="draw-value">—</b></div>
+  </aside>
+  <aside id="controls" class="hud controls">
+    <div><kbd>W A S D</kbd> 移动　<kbd>Shift</kbd> 加速　<kbd>Space</kbd> 跳跃</div>
+    <div><kbd>滚轮</kbd> 球 / 飞盘 / 泥巴 / 炸弹　<kbd>左键</kbd> 单发　<kbd>按住左键</kbd> 5 发/秒连射</div>
+    <div><kbd>1 / 2 / 3</kbd> 楼层　<kbd>R</kbd> 重置　<kbd>H</kbd> 隐藏说明</div>
+  </aside>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <pre id="fatal-error" hidden></pre>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
