@@ -28,12 +28,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Rebuild OfficeWalk3D site
+      - name: Rebuild and verify OfficeWalk3D site
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p _site
           cat .site-source/OfficeWalk3D_v0.9.4-site.zip.b64.part* | base64 --decode > /tmp/officewalk-site.zip
+          echo 'f15c5aab6d60063047e5f0d32dd2c616137cd5f3ba466e8611aaccab012fe6ce  /tmp/officewalk-site.zip' | sha256sum -c -
+          unzip -tq /tmp/officewalk-site.zip
           unzip -q /tmp/officewalk-site.zip -d _site
           test -f _site/index.html
           test -f _site/src/main.js
