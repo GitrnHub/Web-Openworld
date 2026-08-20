@@ -8,8 +8,9 @@ A shared, browser-based destruction sandbox built with Three.js and Cloudflare D
 
 - A three-storey safe house inspired by Fallingwater's stacked terraces, central stone core, corner glazing, and close relationship with the site. It is an original low-poly scene, not a replica.
 - Destructible terrain and architecture. Damage is applied immediately in the browser, batched about every 2.5 seconds, persisted in a SQLite-backed Durable Object, then shared with other visitors.
-- Deterministic, seamless terrain chunks around the player. Three geometry LODs, chunk recycling, distance fog, terrain skirts, and safe-house interior/detail culling keep the open world bounded in memory and draw cost.
-- A low shelf and stream valley around the safe house, gradually rising terrain at middle distance, and seeded variation farther away.
+- Deterministic, seamless terrain chunks around the player. Three geometry LODs, chunk recycling, shared edge normals, distance fog, terrain skirts, and safe-house interior/detail culling keep the open world bounded in memory and draw cost.
+- A sheltered stream valley around the safe house that rises into domain-warped, multi-scale alpine ridges with an irregular snow line and atmospheric distant peaks.
+- Bombs are unavailable while the player is inside the safe house and automatically become selectable again outdoors.
 
 ## Controls
 
@@ -72,3 +73,5 @@ wrangler.jsonc          Worker, CORS, and Durable Object configuration
 ```
 
 Safe-house design reference: [Fallingwater — Designing Fallingwater](https://fallingwater.org/history/the-kaufmanns-fallingwater/designing-fallingwater/).
+
+Terrain visual reference: [Elevated on Shadertoy](https://www.shadertoy.com/view/MdX3Rr). The implementation uses original JavaScript terrain generation and Three.js materials rather than copied shader source.

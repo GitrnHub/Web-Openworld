@@ -3,10 +3,10 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 const DEFAULTS = Object.freeze({
   chunkSize: 64,
   viewRadius: 4,
-  nearSegments: 32,
-  midSegments: 16,
-  farSegments: 8,
-  skirtDepth: 8,
+  nearSegments: 64,
+  midSegments: 32,
+  farSegments: 16,
+  skirtDepth: 12,
 });
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -42,6 +42,21 @@ function fbm(x, z, seed = 0, octaves = 6) {
   return total / normalizer;
 }
 
+function ridgedFbm(x, z, seed = 0, octaves = 7) {
+  let amplitude = 0.58, frequency = 1, total = 0, normalizer = 0, previous = 1;
+  for (let octave = 0; octave < octaves; octave++) {
+    let ridge = 1 - Math.abs(valueNoise(x * frequency, z * frequency, seed + octave * 19));
+    ridge *= ridge;
+    ridge *= 0.56 + previous * 0.44;
+    total += ridge * amplitude;
+    normalizer += amplitude;
+    previous = ridge;
+    frequency *= 2.04;
+    amplitude *= 0.53;
+  }
+  return total / normalizer;
+}
+
 function chunkKey(x, z) {
   return `${x}:${z}`;
 }
@@ -70,18 +85,53 @@ export class InfiniteTerrain {
     this.mesh.userData.terrain = true;
     this.scene.add(this.mesh);
 
-    this.materials = [0, 1, 2].map((lod) => new THREE.MeshStandardMaterial({
+    this.materials = [0, 1, 2].map((lod) => {
+      const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.91,
+      roughness: lod === 0 ? 0.84 : 0.9,
       metalness: 0.01,
-      envMapIntensity: lod === 0 ? 0.68 : 0.50,
-      flatShading: lod === 2,
-    }));
+      envMapIntensity: lod === 0 ? 0.82 : 0.58,
+      flatShading: false,
+      });
+      material.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vTerrainWorldPosition;')
+          .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>
+varying vec3 vTerrainWorldPosition;
+float terrainHash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float terrainGrain(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(terrainHash(i), terrainHash(i + vec2(1.0, 0.0)), f.x), mix(terrainHash(i + vec2(0.0, 1.0)), terrainHash(i + vec2(1.0)), f.x), f.y);
+}`)
+          .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+float terrainBump = terrainGrain(vTerrainWorldPosition.xz * 0.36) * 0.74 + terrainGrain(vTerrainWorldPosition.xz * 1.10) * 0.26;
+vec3 terrainSigmaX = dFdx(vTerrainWorldPosition);
+vec3 terrainSigmaY = dFdy(vTerrainWorldPosition);
+vec3 terrainR1 = cross(terrainSigmaY, normal);
+vec3 terrainR2 = cross(normal, terrainSigmaX);
+float terrainDet = dot(terrainSigmaX, terrainR1);
+vec3 terrainGradient = sign(terrainDet) * (dFdx(terrainBump) * terrainR1 + dFdy(terrainBump) * terrainR2);
+normal = normalize(abs(terrainDet) * normal - terrainGradient * ${lod === 0 ? '0.34' : lod === 1 ? '0.22' : '0.12'});`)
+          .replace('#include <color_fragment>', `#include <color_fragment>
+float terrainFine = terrainGrain(vTerrainWorldPosition.xz * 0.33) * 0.075 + terrainGrain(vTerrainWorldPosition.xz * 1.45) * 0.025;
+diffuseColor.rgb *= 0.955 + terrainFine;`);
+      };
+      material.customProgramCacheKey = () => 'alpine-terrain-v2';
+      return material;
+    });
     this.palette = {
-      moss: new THREE.Color(0x536849),
-      earth: new THREE.Color(0x75634e),
-      rock: new THREE.Color(0x686b67),
-      snow: new THREE.Color(0xc8d1d1),
+      moss: new THREE.Color(0x4e634e),
+      earth: new THREE.Color(0x655d53),
+      rock: new THREE.Color(0x555b60),
+      rockLight: new THREE.Color(0x858882),
+      snow: new THREE.Color(0xe8eef4),
     };
     this.colorScratch = new THREE.Color();
     this.normalScratch = new THREE.Vector3();
@@ -98,15 +148,21 @@ export class InfiniteTerrain {
 
   baseHeightAt(x, z) {
     const distance = Math.hypot(x * 0.92, z);
-    const warpedX = x + fbm(x * 0.004, z * 0.004, 41, 4) * 42;
-    const warpedZ = z + fbm(x * 0.004, z * 0.004, 73, 4) * 42;
-    const macro = fbm(warpedX * 0.0062, warpedZ * 0.0062, 11, 7);
-    const ridges = 1 - Math.abs(fbm(warpedX * 0.0105, warpedZ * 0.0105, 29, 6));
-    const detail = fbm(x * 0.034, z * 0.034, 97, 4);
+    const warpA = fbm(x * 0.0028, z * 0.0028, 41, 4);
+    const warpB = fbm(x * 0.0028 + 19.7, z * 0.0028 - 11.4, 73, 4);
+    const warpedX = x + warpA * 66;
+    const warpedZ = z + warpB * 66;
+    const macro = fbm(warpedX * 0.0045, warpedZ * 0.0045, 11, 7);
+    const massif = ridgedFbm(warpedX * 0.0082, warpedZ * 0.0082, 29, 8);
+    const shoulders = ridgedFbm(warpedX * 0.0155, warpedZ * 0.0155, 67, 6);
+    const detail = fbm(x * 0.038, z * 0.038, 97, 5);
+    const crags = Math.pow(ridgedFbm(warpedX * 0.026, warpedZ * 0.026, 113, 5), 2.05);
+    const micro = fbm(x * 0.092, z * 0.092, 181, 4);
 
-    const nearValley = -0.7 + macro * 3.8 + detail * 0.75;
-    const wildTerrain = 12 + macro * 23 + Math.pow(ridges, 2.15) * 16 + detail * 2.8;
-    let height = lerp(nearValley, wildTerrain, smoothRange(62, 215, distance));
+    const nearValley = -0.35 + macro * 4.8 + massif * 3.5 + detail * 1.05;
+    const alpine = 9 + (macro + 0.18) * 24 + Math.pow(massif, 1.24) * 70 + shoulders * 16 + crags * 15 + detail * 5.4 + micro * 1.7;
+    const mountainBlend = smoothRange(56, 154, distance);
+    let height = lerp(nearValley, alpine, mountainBlend);
 
     // Only the structural footprint is prepared. Outside it the rock shelves return quickly.
     const foundationDistance = boxDistance(x, z, 20, 13.5);
@@ -115,11 +171,12 @@ export class InfiniteTerrain {
     // A shallow stream valley passes under the eastern cantilevers. It is inspired by the site's
     // relationship with water and rock, without copying Fallingwater's building or floor plan.
     const streamDistance = Math.abs(x - this.streamCenterX(z));
-    const streamInfluence = Math.exp(-(streamDistance * streamDistance) / 45) * (1 - smoothRange(145, 245, distance));
-    height -= streamInfluence * (2.4 + Math.max(0, detail) * 0.7);
+    const streamInfluence = Math.exp(-(streamDistance * streamDistance) / 150) * (1 - smoothRange(245, 365, distance));
+    height -= streamInfluence * (2.1 + mountainBlend * 13 + Math.max(0, detail) * 1.2);
 
-    const shelfBlend = (1 - smoothRange(35, 150, distance)) * 0.28;
-    const shelf = Math.floor((height + 0.35) / 1.65) * 1.65;
+    // Barely stepped rock close to the house; the effect fades before the alpine ring begins.
+    const shelfBlend = (1 - smoothRange(27, 82, distance)) * 0.075;
+    const shelf = Math.floor((height + 0.28) / 1.45) * 1.45;
     return lerp(height, shelf, shelfBlend);
   }
 
@@ -155,15 +212,21 @@ export class InfiniteTerrain {
     return out.set(left - right, epsilon * 2, down - up).normalize();
   }
 
-  colorAt(x, z, height) {
-    const normal = this.normalAt(x, z, this.normalScratch);
+  colorAt(x, z, height, suppliedNormal = null) {
+    const normal = suppliedNormal || this.normalAt(x, z, this.normalScratch);
     const slope = 1 - normal.y;
     const streamDistance = Math.abs(x - this.streamCenterX(z));
     const nearStream = 1 - smoothRange(4, 15, streamDistance);
-    const base = this.colorScratch.copy(this.palette.earth).lerp(this.palette.moss, nearStream * 0.68);
-    base.lerp(this.palette.rock, clamp(slope * 2.3 + smoothRange(12, 26, height) * 0.42, 0, 1));
-    base.lerp(this.palette.snow, smoothRange(28, 43, height) * (0.55 + normal.y * 0.45));
-    const grain = 0.93 + hash2(Math.floor(x * 0.45), Math.floor(z * 0.45), 211) * 0.14;
+    const vegetation = nearStream * (1 - smoothRange(9, 18, height)) * smoothRange(0.42, 0.9, normal.y);
+    const distance = Math.hypot(x * 0.92, z);
+    const base = this.colorScratch.copy(this.palette.earth).lerp(this.palette.rock, smoothRange(72, 170, distance) * 0.42).lerp(this.palette.moss, vegetation * 0.78);
+    const rockAmount = clamp(slope * 3.35 + smoothRange(8, 24, height) * 0.38, 0, 1);
+    base.lerp(this.palette.rock, rockAmount);
+    base.lerp(this.palette.rockLight, smoothRange(0.15, 0.5, slope) * 0.23);
+    const snowLine = 11.5 + fbm(x * 0.009, z * 0.009, 313, 3) * 2.8;
+    const snow = smoothRange(snowLine - 2.8, snowLine + 4.8, height) * smoothRange(0.2, 0.75, normal.y);
+    base.lerp(this.palette.snow, clamp(snow, 0, 0.96));
+    const grain = 0.94 + hash2(Math.floor(x * 0.62), Math.floor(z * 0.62), 211) * 0.12;
     return base.multiplyScalar(grain);
   }
 
@@ -176,7 +239,7 @@ export class InfiniteTerrain {
 
   createChunk(chunkX, chunkZ, segments, lod) {
     const size = this.chunkSize;
-    const vertices = [], colors = [], indices = [];
+    const vertices = [], colors = [], normals = [], indices = [];
     const row = segments + 1;
     const startX = chunkX * size, startZ = chunkZ * size;
     for (let iz = 0; iz <= segments; iz++) {
@@ -184,9 +247,11 @@ export class InfiniteTerrain {
         const x = startX + (ix / segments) * size;
         const z = startZ + (iz / segments) * size;
         const y = this.deformedHeightAt(x, z);
-        const color = this.colorAt(x, z, y);
+        const normal = this.normalAt(x, z, new THREE.Vector3());
+        const color = this.colorAt(x, z, y, normal);
         vertices.push(x, y, z);
         colors.push(color.r, color.g, color.b);
+        normals.push(normal.x, normal.y, normal.z);
       }
     }
     for (let iz = 0; iz < segments; iz++) {
@@ -206,6 +271,7 @@ export class InfiniteTerrain {
     for (const index of edge) {
       vertices.push(vertices[index * 3], vertices[index * 3 + 1] - this.options.skirtDepth, vertices[index * 3 + 2]);
       colors.push(colors[index * 3] * 0.74, colors[index * 3 + 1] * 0.74, colors[index * 3 + 2] * 0.74);
+      normals.push(normals[index * 3], normals[index * 3 + 1], normals[index * 3 + 2]);
     }
     for (let i = 0; i < edge.length; i++) {
       const next = (i + 1) % edge.length;
@@ -216,8 +282,8 @@ export class InfiniteTerrain {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setIndex(indices);
-    geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, this.materials[lod]);

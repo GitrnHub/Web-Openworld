@@ -15,3 +15,5 @@ Three.js is loaded from the CDN and is not vendored in this repository.
 The current terrain, fracture integration, safe-house model, and Sphere/OBB rigid-body layer are project code. No Rapier or PhysX runtime is bundled.
 
 The safe house draws general architectural inspiration from Fallingwater's published design principles. It does not contain Fallingwater plans, photography, textures, or a copied 3D model. Reference: https://fallingwater.org/history/the-kaufmanns-fallingwater/designing-fallingwater/
+
+The alpine terrain uses the visual composition of “Elevated” on Shadertoy as a reference (layered ridges, high-frequency rock detail, snow line, and atmospheric depth). The project does not include or copy its GLSL source. Reference: https://www.shadertoy.com/view/MdX3Rr

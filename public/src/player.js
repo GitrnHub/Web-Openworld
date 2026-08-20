@@ -24,8 +24,10 @@ export class FirstPersonPlayer {
     this.verticalVelocity = 0;
     this.onGround = true;
     this.keys = new Set();
+    this._releaseTimers = new Map();
     this.enabled = true;
     this._locked = false;
+    this._keyboardMode = false;
 
     this._forward = new THREE.Vector3();
     this._right = new THREE.Vector3();
@@ -45,22 +47,40 @@ export class FirstPersonPlayer {
     };
 
     this._onKeyDown = (event) => {
+      const releaseTimer = this._releaseTimers.get(event.code);
+      if (releaseTimer) { window.clearTimeout(releaseTimer); this._releaseTimers.delete(event.code); }
       this.keys.add(event.code);
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'Space'].includes(event.code)) {
         event.preventDefault();
       }
-      if (event.code === 'Space' && this.onGround && this._locked) {
+      if (event.code === 'Space' && this.onGround && this.locked) {
         this.verticalVelocity = this.jumpSpeed;
         this.onGround = false;
+      }
+      if (event.code === 'Escape' && this._keyboardMode) {
+        this._keyboardMode = false;
+        this.dispatchLockEvent();
       }
     };
 
     this._onKeyUp = (event) => {
-      this.keys.delete(event.code);
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) {
+        const timer = window.setTimeout(() => { this.keys.delete(event.code); this._releaseTimers.delete(event.code); }, 75);
+        this._releaseTimers.set(event.code, timer);
+      } else {
+        this.keys.delete(event.code);
+      }
+    };
+
+    this._onBlur = () => {
+      for (const timer of this._releaseTimers.values()) window.clearTimeout(timer);
+      this._releaseTimers.clear(); this.keys.clear();
     };
 
     this._onPointerLockChange = () => {
+      const wasLocked = this._locked;
       this._locked = document.pointerLockElement === this.domElement;
+      if (this._locked || wasLocked) this._keyboardMode = false;
       this.dispatchLockEvent();
     };
 
@@ -68,26 +88,47 @@ export class FirstPersonPlayer {
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('keyup', this._onKeyUp);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    window.addEventListener('blur', this._onBlur);
   }
 
   get locked() {
-    return this._locked;
+    return this._locked || this._keyboardMode;
   }
 
   requestLock() {
-    if (!this.domElement.requestPointerLock) return;
-    const result = this.domElement.requestPointerLock({ unadjustedMovement: true });
-    if (result && typeof result.catch === 'function') {
-      result.catch(() => this.domElement.requestPointerLock());
+    const enableKeyboardMode = () => {
+      this._keyboardMode = true;
+      this.domElement.tabIndex = 0;
+      this.domElement.focus({ preventScroll: true });
+      this.dispatchLockEvent();
+    };
+    if (!this.domElement.requestPointerLock) { enableKeyboardMode(); return; }
+    const fallback = () => {
+      try {
+        const result = this.domElement.requestPointerLock();
+        if (result && typeof result.catch === 'function') result.catch(enableKeyboardMode);
+      } catch {
+        enableKeyboardMode();
+      }
+    };
+    try {
+      const result = this.domElement.requestPointerLock({ unadjustedMovement: true });
+      if (result && typeof result.catch === 'function') result.catch(fallback);
+    } catch {
+      fallback();
     }
   }
 
   exitLock() {
     if (document.pointerLockElement) document.exitPointerLock();
+    if (this._keyboardMode) {
+      this._keyboardMode = false;
+      this.dispatchLockEvent();
+    }
   }
 
   dispatchLockEvent() {
-    window.dispatchEvent(new CustomEvent('safehouse:pointerlock', { detail: { locked: this._locked } }));
+    window.dispatchEvent(new CustomEvent('safehouse:pointerlock', { detail: { locked: this.locked, keyboardMode: this._keyboardMode } }));
   }
 
   applyLook() {
@@ -132,7 +173,7 @@ export class FirstPersonPlayer {
     const grounded = this.world.groundHeight(this.camera.position.x, this.camera.position.z, this.camera.position.y);
     const desiredEyeY = grounded + EYE_HEIGHT;
 
-    if (this._locked) {
+    if (this.locked) {
       this._forward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
       this._forward.y = 0;
       if (this._forward.lengthSq() > 1e-8) this._forward.normalize();
@@ -183,5 +224,7 @@ export class FirstPersonPlayer {
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('keyup', this._onKeyUp);
     document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    window.removeEventListener('blur', this._onBlur);
+    this._onBlur();
   }
 }

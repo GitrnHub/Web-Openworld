@@ -393,9 +393,21 @@ export class SafehouseWorld {
     return '3F · 休息室与观景台';
   }
 
+  isIndoors(position) {
+    if (!position) return false;
+    if (position.y < 0.1 || position.y > FLOOR_HEIGHT * 3 + 0.3) return false;
+    if (position.y < FLOOR_HEIGHT - 0.12) return within(position.x, position.z, 14.25, 10.35, -2.85, 0);
+    if (position.y < FLOOR_HEIGHT * 2 - 0.12) return within(position.x, position.z, 13.1, 9.1, -1.6, 0.75);
+    return within(position.x, position.z, 10.25, 8.0, -0.1, 1.55);
+  }
+
   spawnForFloor(index) {
     const floor = clamp(index, 0, 2);
-    const positions = [new THREE.Vector3(-2, EYE_HEIGHT, -6), new THREE.Vector3(2, FLOOR_HEIGHT + EYE_HEIGHT, -4), new THREE.Vector3(4, FLOOR_HEIGHT * 2 + EYE_HEIGHT, -2)];
-    return positions[floor].clone();
+    const candidates = [
+      [new THREE.Vector3(3.6, EYE_HEIGHT, -7.2), new THREE.Vector3(-8.5, EYE_HEIGHT, -5.6), new THREE.Vector3(4.2, EYE_HEIGHT, 0)],
+      [new THREE.Vector3(-4.5, FLOOR_HEIGHT + EYE_HEIGHT, -4.4), new THREE.Vector3(5.2, FLOOR_HEIGHT + EYE_HEIGHT, -5.8), new THREE.Vector3(-4, FLOOR_HEIGHT + EYE_HEIGHT, 5.2)],
+      [new THREE.Vector3(2.4, FLOOR_HEIGHT * 2 + EYE_HEIGHT, -3.8), new THREE.Vector3(5.5, FLOOR_HEIGHT * 2 + EYE_HEIGHT, 5.4), new THREE.Vector3(-2, FLOOR_HEIGHT * 2 + EYE_HEIGHT, -3.5)],
+    ];
+    return (candidates[floor].find((position) => !this.isBlocked(position)) || candidates[floor][0]).clone();
   }
 }

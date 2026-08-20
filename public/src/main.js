@@ -41,9 +41,9 @@ if (ui.qualityValue) ui.qualityValue.textContent = `${qualityPreset.label} · ${
 
 const terrainQualityName = query.get('terrainQuality') || localStorage.getItem('safehouse.terrainQuality') || 'high';
 const terrainQualityPresets = {
-  balanced: { viewRadius: 3, nearSegments: 24, midSegments: 12, farSegments: 6, label: '平衡', description: '3 区块视距 / 自适应 LOD' },
-  high: { viewRadius: 4, nearSegments: 32, midSegments: 16, farSegments: 8, label: '高精度', description: '4 区块视距 / 自适应 LOD' },
-  ultra: { viewRadius: 5, nearSegments: 40, midSegments: 20, farSegments: 10, label: '极高', description: '5 区块视距 / 自适应 LOD' },
+  balanced: { viewRadius: 3, nearSegments: 40, midSegments: 20, farSegments: 10, label: '平衡', description: '3 区块视距 / 自适应 LOD' },
+  high: { viewRadius: 4, nearSegments: 64, midSegments: 32, farSegments: 16, label: '高精度', description: '4 区块视距 / 高山细节 LOD' },
+  ultra: { viewRadius: 5, nearSegments: 80, midSegments: 40, farSegments: 20, label: '极高', description: '5 区块视距 / 高山细节 LOD' },
 };
 const terrainQualityPreset = terrainQualityPresets[terrainQualityName] || terrainQualityPresets.high;
 if (ui.terrainQuality) {
@@ -86,13 +86,62 @@ function addSafehouseLights(scene) {
   const fill = new THREE.PointLight(0x9fd8ff, 62, 20, 2); fill.position.set(8, 2.35, 6); scene.add(fill);
 }
 
+function createAlpineSky(scene, radius) {
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    toneMapped: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec3 vSkyDirection;
+      void main() {
+        vSkyDirection = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      varying vec3 vSkyDirection;
+      uniform float uTime;
+      float cloudField(vec2 p) {
+        float n = sin(p.x * 2.3 + sin(p.y * 1.7)) * 0.34;
+        n += sin(p.x * 5.7 - p.y * 3.1 + 1.4) * 0.18;
+        n += sin(p.x * 11.0 + p.y * 4.3 - 0.8) * 0.09;
+        return n + 0.5;
+      }
+      void main() {
+        vec3 d = normalize(vSkyDirection);
+        float horizon = smoothstep(-0.1, 0.72, d.y);
+        vec3 horizonColor = vec3(0.72, 0.80, 0.88);
+        vec3 zenithColor = vec3(0.30, 0.50, 0.72);
+        vec3 color = mix(horizonColor, zenithColor, horizon);
+        vec2 cloudUv = d.xz / max(0.12, d.y + 0.34);
+        cloudUv += vec2(uTime * 0.0015, -uTime * 0.0008);
+        float cloudBand = smoothstep(-0.02, 0.19, d.y) * (1.0 - smoothstep(0.34, 0.68, d.y));
+        float clouds = smoothstep(0.56, 0.78, cloudField(cloudUv * 0.85)) * cloudBand;
+        color = mix(color, vec3(0.92, 0.95, 0.99), clouds * 0.58);
+        vec3 sunDirection = normalize(vec3(-0.70, 0.48, -0.42));
+        float sunGlow = pow(max(dot(d, sunDirection), 0.0), 12.0);
+        float sunDisc = pow(max(dot(d, sunDirection), 0.0), 720.0);
+        color += vec3(1.0, 0.56, 0.27) * sunGlow * 0.15 + vec3(1.0, 0.88, 0.68) * sunDisc * 0.9;
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 40, 20), material);
+  mesh.name = 'alpine-atmosphere'; mesh.frustumCulled = false; mesh.renderOrder = -1000;
+  scene.add(mesh);
+  return { mesh, material };
+}
+
 async function initialize() {
   if (!ui.app) throw new Error('Missing #app container.');
   if (!navigator.gpu && !cpuViewMode) throw new Error('navigator.gpu 不可用：当前页面没有 WebGPU 上下文。');
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', stencil: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.42)); renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = 1.06;
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.shadowMap.autoUpdate = true;
   ui.app.appendChild(renderer.domElement);
 
@@ -102,14 +151,15 @@ async function initialize() {
     ultra: { fogNear: 205, fogFar: 334, cameraFar: 370 },
   };
   const visibility = visibilityPresets[terrainQualityName] || visibilityPresets.high;
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x607d91); scene.fog = new THREE.Fog(0x617d8d, visibility.fogNear, visibility.fogFar);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0xaac1d4); scene.fog = new THREE.Fog(0xaabfd0, visibility.fogNear, visibility.fogFar);
   // The previous 67 degree view exaggerated near objects; 52 degrees is closer to a natural first-person lens.
   const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.045, visibility.cameraFar); camera.rotation.order = 'YXZ';
+  const alpineSky = createAlpineSky(scene, visibility.cameraFar * 0.82);
 
   const materials = createMaterials(renderer); scene.environment = createStudioEnvironment(renderer);
-  const hemi = new THREE.HemisphereLight(0xc9def5, 0x403b39, 0.54);
+  const hemi = new THREE.HemisphereLight(0xdcecff, 0x3f4248, 0.72);
   const ambient = new THREE.AmbientLight(0xb9c7d2, 0.075); scene.add(hemi, ambient);
-  const sun = new THREE.DirectionalLight(0xffd1a1, 2.32); sun.position.set(-70, 54, -38); sun.castShadow = true;
+  const sun = new THREE.DirectionalLight(0xffc58f, 2.75); sun.position.set(-70, 54, -38); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = -42; sun.shadow.camera.right = 42; sun.shadow.camera.top = 38; sun.shadow.camera.bottom = -38;
   sun.shadow.camera.near = 2; sun.shadow.camera.far = 120; sun.shadow.bias = -0.00012; sun.shadow.normalBias = 0.032;
   scene.add(sun, sun.target); sun.target.position.set(0, 3.5, 0); addSafehouseLights(scene);
@@ -141,10 +191,17 @@ async function initialize() {
 
   if (testMode) {
     const stats = destruction.getStats();
+    const spawn = world.spawnForFloor(0);
+    if (world.isBlocked(spawn)) throw new Error('The lobby spawn overlaps a collider.');
+    const movementProbe = world.resolvePlayerMove(spawn, new THREE.Vector3(0, 0, 1.2), 0.34, 0.52);
+    if (movementProbe.distanceToSquared(spawn) < 0.64) throw new Error('The lobby spawn cannot move forward with WASD clearance.');
     document.body.dataset.selftest = 'pass';
     document.body.dataset.particles = String(stats.particles);
     document.body.dataset.constraints = String(stats.constraints);
     document.body.dataset.gpu = stats.gpu || 'WebGPU';
+    document.body.dataset.spawnClear = 'true';
+    document.body.dataset.movementClear = 'true';
+    document.body.dataset.indoorBombRule = String(world.isIndoors(spawn));
     document.title = 'WEB_OPENWORLD_SELFTEST_PASS';
     window.__WEB_OPENWORLD_READY__ = true;
     return;
@@ -168,11 +225,23 @@ async function initialize() {
   void sharedWorld.start();
 
   let controlsHidden = false, fireHeld = false, fireAccumulator = 0;
-  const fireNow = () => { destruction.enableAudio(); destruction.shoot(); };
+  let bombLockActive = world.isIndoors(camera.position);
+  const updateWeaponLabel = () => {
+    if (ui.weapon) ui.weapon.textContent = `弹体：${destruction.getProjectileType().label}${bombLockActive ? ' · 室内禁用炸弹' : ''}`;
+    document.body.dataset.bombEnabled = String(!bombLockActive);
+    document.body.dataset.indoors = String(bombLockActive);
+  };
+  const fireNow = () => {
+    if (world.isIndoors(camera.position) && destruction.getProjectileType().bomb) {
+      toast('安全屋室内禁止使用炸弹', 900);
+      return false;
+    }
+    destruction.enableAudio(); destruction.shoot(); return true;
+  };
   const stopFiring = () => { fireHeld = false; fireAccumulator = 0; };
   function setStartPanelVisible(visible) { if (previewMode) { ui.startPanel.classList.add('hidden'); return; } ui.startPanel.classList.toggle('hidden', !visible); }
   ui.startButton.addEventListener('click', () => { destruction.enableAudio(); player.requestLock(); });
-  window.addEventListener('safehouse:pointerlock', (event) => { const locked = Boolean(event.detail?.locked); if (!locked) stopFiring(); setStartPanelVisible(!locked); });
+  window.addEventListener('safehouse:pointerlock', (event) => { const locked = Boolean(event.detail?.locked); document.body.dataset.controlsActive = String(locked); if (!locked) stopFiring(); setStartPanelVisible(!locked); });
   renderer.domElement.addEventListener('mousedown', (event) => {
     if (event.button !== 0) return; event.preventDefault();
     if (!player.locked && !previewMode) { destruction.enableAudio(); player.requestLock(); return; }
@@ -183,8 +252,10 @@ async function initialize() {
   renderer.domElement.addEventListener('wheel', (event) => {
     if (!player.locked && !previewMode) return;
     event.preventDefault();
-    const type = destruction.cycleProjectile(event.deltaY >= 0 ? 1 : -1);
-    if (ui.weapon) ui.weapon.textContent = `弹体：${type.label}`;
+    const direction = event.deltaY >= 0 ? 1 : -1;
+    let type = destruction.cycleProjectile(direction);
+    if (world.isIndoors(camera.position) && type.bomb) type = destruction.cycleProjectile(direction);
+    updateWeaponLabel();
     toast(`已切换：${type.label}`, 650);
   }, { passive: false });
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -206,18 +277,30 @@ async function initialize() {
     const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000)); lastTime = now; elapsed += dt;
     if (fireHeld) { fireAccumulator += dt; let guard = 0; while (fireAccumulator >= 0.2 && guard++ < 3) { fireAccumulator -= 0.2; fireNow(); } }
     player.update(dt); world.update(dt, elapsed, camera.position); destruction.update(dt, elapsed);
+    const indoors = world.isIndoors(camera.position);
+    if (indoors !== bombLockActive) {
+      bombLockActive = indoors;
+      if (bombLockActive && destruction.getProjectileType().bomb) {
+        destruction.setProjectileType('sphere');
+        toast('已进入安全屋 · 炸弹已禁用', 950);
+      }
+      updateWeaponLabel();
+    }
+    alpineSky.mesh.position.copy(camera.position); alpineSky.material.uniforms.uTime.value = elapsed;
     targetTime += dt; if (targetTime >= 0.12) { targetTime = 0; updateTarget(); ui.floor.textContent = world.floorName(camera.position.y, camera.position.x, camera.position.z); }
     renderer.render(scene, camera); frames++;
     if (now - statsTime >= 500) {
       const span = Math.max(1, now - statsTime); ui.fps.textContent = String(Math.round((frames * 1000) / span)); frames = 0; statsTime = now;
       const stats = destruction.getStats(); ui.projectiles.textContent = String(stats.projectiles); ui.particles.textContent = stats.particles.toLocaleString(); ui.constraints.textContent = stats.constraints.toLocaleString();
       ui.fragments.textContent = String((stats.activeFragments || 0) + (stats.realFragments || 0)); ui.sleeping.textContent = String((stats.sleepingInteractive || 0) + (stats.debris || 0) + (stats.mergedFragments || 0)); if (ui.rigid) ui.rigid.textContent = String(stats.rigidBodies || 0); ui.draws.textContent = String(renderer.info.render.calls);
+      document.body.dataset.playerX = camera.position.x.toFixed(3); document.body.dataset.playerY = camera.position.y.toFixed(3); document.body.dataset.playerZ = camera.position.z.toFixed(3);
     }
   }
   renderer.setAnimationLoop(frame);
   window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.42)); renderer.setSize(window.innerWidth, window.innerHeight); });
 
-  window.safehouseDemo = { THREE, renderer, scene, camera, materials, destruction, world, player, shoot: () => destruction.shoot(), cycleProjectile: (step=1) => destruction.cycleProjectile(step), setProjectileType: (id) => destruction.setProjectileType(id) };
+  updateWeaponLabel();
+  window.safehouseDemo = { THREE, renderer, scene, camera, materials, destruction, world, player, shoot: fireNow, cycleProjectile: (step=1) => destruction.cycleProjectile(step), setProjectileType: (id) => (id === 'bomb' && world.isIndoors(camera.position) ? destruction.getProjectileType() : destruction.setProjectileType(id)) };
   window.__WEB_OPENWORLD_READY__ = true; if (!previewMode) setStartPanelVisible(true);
 }
 initialize().catch(showFatal);

@@ -16,7 +16,7 @@
     <p>建筑和地形破坏会每 2.5 秒批量同步并持久保存。</p>
 
     <label class="quality-row" for="quality-select"><span><b>断口精度</b><small id="quality-value">高精度 · 1.22×</small></span><select id="quality-select"><option value="standard">标准 · 更快</option><option value="fine">精细 · 平衡</option><option value="high" selected>高精度 · 推荐</option><option value="ultra">极高 · 更吃显存</option></select></label>
-    <label class="quality-row" for="terrain-quality-select"><span><b>流式地形质量</b><small id="terrain-quality-value">高精度 · 4 区块视距 / 自适应 LOD</small></span><select id="terrain-quality-select"><option value="balanced">平衡 · 3 区块视距</option><option value="high" selected>高精度 · 4 区块视距</option><option value="ultra">极高 · 5 区块视距</option></select></label>
+    <label class="quality-row" for="terrain-quality-select"><span><b>流式地形质量</b><small id="terrain-quality-value">高精度 · 4 区块视距 / 高山细节 LOD</small></span><select id="terrain-quality-select"><option value="balanced">平衡 · 3 区块视距</option><option value="high" selected>高精度 · 4 区块视距</option><option value="ultra">极高 · 5 区块视距</option></select></label>
     <p id="init-text" class="fineprint">正在准备 Three.js / WebGPU…</p>
     <button id="start-button" type="button" disabled>初始化中…</button>
     <p class="fineprint">请使用支持 WebGPU 的新版 Edge 或 Chrome。按 Esc 释放鼠标；网络不可用时仍可本地游玩，未发送变更会等待重连。</p>
@@ -45,6 +45,7 @@
   <aside id="controls" class="hud controls">
     <div><kbd>W A S D</kbd> 移动　<kbd>Shift</kbd> 加速　<kbd>Space</kbd> 跳跃</div>
     <div><kbd>滚轮</kbd> 球 / 飞盘 / 泥巴 / 炸弹　<kbd>左键</kbd> 单发　<kbd>按住左键</kbd> 连射</div>
+    <div>安全屋室内禁用炸弹；走到室外后自动恢复选择。</div>
     <div><kbd>1 / 2 / 3</kbd> 前往楼层　<kbd>H</kbd> 隐藏说明　<kbd>Esc</kbd> 释放鼠标</div>
   </aside>
   <div id="toast" role="status" aria-live="polite"></div>
