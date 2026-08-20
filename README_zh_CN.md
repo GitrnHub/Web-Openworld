@@ -1,79 +1,62 @@
-# OfficeWalk3D · WebGPU Voxel/Rigid Terrain v0.9.4
+# Web Openworld
 
-OfficeWalk3D 漫游场景的实时破坏实验版。材料内部断裂由 WebGPU/WGSL XPBD + 体素断裂场负责，脱离后的弹体和碎块由轻量 Sphere/OBB 刚体层处理。
+一个使用 Three.js 与 Cloudflare Durable Objects 构建的多人共享破坏世界。
 
-在线版：`https://gitrnhub.github.io/Web-Openworld/`
+在线地址：https://gitrnhub.github.io/Web-Openworld/
 
-> GitHub Pages 版将 Three.js 固定为 `0.160.0`（r160）并从 jsDelivr 的版本化 URL 加载，减少仓库和部署体积；其余核心场景/物理源码来自 v0.9.4。
+## 当前版本
 
-## v0.9.4 · 贴图与建筑周边地形优化
-
-- **建筑周边改为真正的大面积平地**：以建筑为中心保留约 `176 m × 156 m` 的水平庭院。当前建筑约 `64 m × 44 m`，因此从外墙到开始起坡的位置四周约有 **56 m** 的平坦余量；之后再用约 `58 m` 的五次 smootherstep 过渡回 Elevated 山地。
-- **南侧出口不再贴着山坡**：门外几十米保持近似 `y=0`，先经过平整的硬土地/短植被庭院，再逐步进入起伏地形；远处山体与可破坏高度场继续保留。
-- **程序化 PBR 贴图升级**：墙面、混凝土、地砖、木材等主要静态材质提升到 `512²`，改为周期性无缝噪声，减少接缝和重复边界。
-- **贴图尺度按现实米制统一**：Box 几何的 UV 依据面朝向和世界尺寸重算，不再让 64 m 长墙与 1 m 小物体共享同一套 0..1 UV 尺度；墙面、混凝土、地砖、木材等分别使用稳定的 meters-per-tile。
-- **纹理采样与色彩空间修正**：颜色贴图使用 sRGB；normal / roughness 维持非颜色数据；启用 mipmap + 各向异性过滤，改善斜视角和远距离纹理清晰度。
-- 所有表面贴图仍由项目代码程序化生成，不依赖外部图片资源。
-
-## v0.9.3 · 地形精细化
-
-- 默认地形提升到 `641 × 641`（410,881 个真实顶点），并提供 513² / 641² / 769² 三档地形几何精度。
-- 高度纹理使用兼容性较好的 NearestFilter，但 shader 内显式进行四点双线性重建，减少块状法线/阴影采样。
-- 地形法线使用逐像素 derivative-damped terrain normal：平衡 10-oct、高精度 12-oct、极高 15-oct；距离越远自动扩大采样半径。
-- 岩石表面增加多尺度程序化 albedo grain、细岩层与近景微细节；积雪增加小尺度破碎，谷地加入轻量高度场 AO。
-- 炸弹坑仍直接修改同一份物理 height field；受损区域会自动降低原始程序化法线权重，保证坑壁法线与碰撞几何一致。
-
-## v0.9.2 · 按 MdX3Rr / Elevated 结构重做室外
-
-- 地形几何采用与原作 `terrainM()` 类似的 **9-octave derivative-damped value noise** 思路。
-- 办公楼下方保留水平基础层，离开建筑后平滑回到 Elevated 高度场。
-- 地表颜色采用深色岩石 → 缓坡土色/植被 → 高海拔坡度积雪组合，并保留方向光、蓝色天光、背光、雪面高光、地形软阴影和蓝色距离雾。
-- 天空按原作 `render()` 的 sky branch 思路组织蓝天、地平线、暖色太阳 halo 和薄云。
-- 炸弹坑修改同一份真实 height field 和 GPU height texture，因此人物、刚体、法线、自阴影与后续爆炸共享同一地形。
-
-原版 Elevated 是屏幕空间 height-field raymarch；本项目需要真实 mesh 才能行走、碰撞和破坏，因此不是逐像素复制原作，而是保留其高度函数、材质分层和光照/雾的核心思路。
-
-## v0.9.0 · 室外、四种弹体与可破坏地形
-
-### 1F 通向室外
-
-一楼南侧有真实门洞和 EXIT 标识，可以直接走到室外山地。室外地形采用对 ShaderToy `MdX3Rr`（Inigo Quilez 的 **Elevated**）思路的可步行高度场改编。
-
-室外移动包括子步进、碰撞后沿墙滑动、坡度限制、小台阶/连续坡面处理；破坏后的弹坑会改变人物可行走高度。
-
-### 弹体
-
-鼠标滚轮循环：
-
-1. **球形**：标准高速冲击；
-2. **飞盘**：薄 OBB，平着投掷并带旋转/轻量升力；
-3. **泥巴**：贴合、摊开、融合、硬化，不直接触发主体断裂；
-4. **炸弹**：低速抛物线投掷，碰撞地形/物体或引信超时后爆炸。
-
-左键立即发射一发；保持左键后按 `0.2 s` 间隔连续发射，即 5 发/秒。
-
-### 刚体形状碰撞
-
-- 静态墙、展台、楼板：Box collider；
-- 大碎块：OBB；
-- 球、小碎屑、炸弹：Sphere；
-- 飞盘：薄 OBB；
-- 室外地形：局部高度 + 法线接触；
-- 支持质量、角速度、摩擦、反弹、sleep/wake 和大碎块之间动态碰撞。
+- 三层安全屋：参考流水别墅的横向悬挑、中央石材核心、转角玻璃和贴合场地的层叠露台，但场景为原创低多边形设计，并非复刻。
+- 一楼是大厅和出生点，二楼是起居区，三楼是休息区与观景台；建筑主体和周边地形都可破坏。
+- 本地破坏立即生效，每约 2.5 秒批量同步一次。Cloudflare SQLite Durable Object 先持久化，再广播给其他在线玩家；退出后重新进入会重放已保存的破坏记录。
+- 世界采用确定性无限区块：围绕玩家无缝加载、回收远处区块，并使用三级 LOD、边缘裙边、距离雾和视距限制。
+- 安全屋附近是较低的岩台与溪谷，中距离才逐渐抬高，远处采用固定种子的随机起伏，不会一出门就撞上山体。
+- 离开安全屋后自动隐藏室内家具，距离更远时隐藏场地装饰，以减少绘制和更新成本。
 
 ## 操作
 
 - `W A S D`：移动
 - `Shift`：加速
 - `Space`：跳跃
-- 鼠标滚轮：球形 / 飞盘 / 泥巴 / 炸弹
-- 左键：立即发射
-- 按住左键：5 发/秒连续发射
-- `1 / 2 / 3`：切换室内楼层
-- `R`：重置破坏、泥巴、碎片、弹体和室外弹坑
-- `H`：隐藏说明
+- 鼠标：观察
+- 鼠标滚轮：切换弹体
+- 左键 / 按住左键：发射
+- `1 / 2 / 3`：切换安全屋楼层
+- `H`：显示或隐藏帮助
 - `Esc`：释放鼠标
 
-## 第三方授权提醒
+## 数据流
 
-室外 `Elevated` 地形部分依据 Inigo Quilez 的 ShaderToy `MdX3Rr` 思路改编，并参考了公开 Unity/HLSL 移植；该参考仓库注明采用 **CC BY-NC-SA 3.0**。因此该衍生部分不应默认视为可无条件商业使用；详见 `THIRD_PARTY_NOTICES.md`。
+```text
+GitHub Pages 静态网页
+        |
+        | HTTPS + WebSocket
+        v
+Cloudflare Worker
+        |
+        | 每个世界 ID 对应一个对象
+        v
+SQLite Durable Object
+```
+
+客户端进入时分页读取历史事件，随后建立可休眠 WebSocket。每个事件都有稳定 ID，可安全重试；Durable Object 完成数据库提交后才向其他客户端广播。
+
+## 本地开发与部署
+
+```bash
+pnpm install
+pnpm run check
+pnpm run dev
+```
+
+另行把 `public/` 托管在 `http://127.0.0.1:4173`。本地页面默认连接 `http://127.0.0.1:8787`，也可以使用 `?api=https://example.workers.dev` 临时指定后端。
+
+Cloudflare 部署步骤：
+
+1. 执行 `pnpm wrangler login`，然后执行 `pnpm run deploy`。
+2. 如果换用其他 Worker 名称或账户，再更新 `public/src/config.js` 中的 `PRODUCTION_API_BASE`。
+3. GitHub Pages 选择 **GitHub Actions** 作为来源；工作流会直接发布 `public/`。
+
+当前共享世界是匿名公共写入模型，并通过精确 CORS 来源、载荷上限和事件校验缩小风险。若公开运营，还应增加登录、限流、管理工具、定期快照和事件压缩。
+
+设计参考：[Fallingwater — Designing Fallingwater](https://fallingwater.org/history/the-kaufmanns-fallingwater/designing-fallingwater/)。

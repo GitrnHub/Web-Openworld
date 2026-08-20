@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "web-openworld-state",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": ["no_nodejs_compat", "no_nodejs_compat_v2"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://gitrnhub.github.io,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8000,http://127.0.0.1:8000"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WORLD_STATE",
+        "class_name": "WorldState"
+      }
+    ]
+  },
+  "exports": {
+    "WorldState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

@@ -2,3 +2,7 @@ _site/
 *.zip
 *.log
 .DS_Store
+node_modules/
+.wrangler/
+coverage/
+worker-configuration.d.ts

@@ -1,0 +1,10 @@
+allowBuilds:
+  esbuild: true
+  workerd: true
+overrides:
+  '@cloudflare/workers-types': 5.20260819.1
+supportedArchitectures:
+  os:
+    - win32
+  cpu:
+    - x64

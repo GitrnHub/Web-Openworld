@@ -1,46 +1,74 @@
 # Web Openworld
 
-Browser-based 3D / WebGPU experiments.
-
-## OfficeWalk3D WebGPU Terrain v0.9.4
+A shared, browser-based destruction sandbox built with Three.js and Cloudflare Durable Objects.
 
 **Live site:** https://gitrnhub.github.io/Web-Openworld/
 
-The current demo is an OfficeWalk3D first-person WebGPU destruction sandbox with voxel XPBD, Sphere/OBB rigid-body projectiles, procedural PBR materials, and destructible Elevated-inspired terrain.
+## What is included
 
-### Controls
+- A three-storey safe house inspired by Fallingwater's stacked terraces, central stone core, corner glazing, and close relationship with the site. It is an original low-poly scene, not a replica.
+- Destructible terrain and architecture. Damage is applied immediately in the browser, batched about every 2.5 seconds, persisted in a SQLite-backed Durable Object, then shared with other visitors.
+- Deterministic, seamless terrain chunks around the player. Three geometry LODs, chunk recycling, distance fog, terrain skirts, and safe-house interior/detail culling keep the open world bounded in memory and draw cost.
+- A low shelf and stream valley around the safe house, gradually rising terrain at middle distance, and seeded variation farther away.
+
+## Controls
 
 - `W A S D`: move
 - `Shift`: sprint
 - `Space`: jump
 - Mouse: look
-- Mouse wheel: sphere / disc / mud / bomb
+- Mouse wheel: choose projectile
 - Left click / hold: fire
-- `1 / 2 / 3`: floors
-- `R`: reset
-- `H`: hide/show help
+- `1 / 2 / 3`: move to a safe-house floor
+- `H`: toggle help
 - `Esc`: release pointer lock
 
-### Browser requirements
+WebGPU is used for the fracture solver, so use a current browser on the HTTPS-hosted Pages site.
 
-Use a current browser with WebGPU enabled. The GitHub Pages deployment is served over HTTPS, which provides the secure context WebGPU expects.
-
-## Repository layout
+## Architecture
 
 ```text
-.site-source/           Complete v0.9.4 live-site payload (split text-safe ZIP)
-.github/workflows/      Rebuild + GitHub Pages deployment
-README_zh_CN.md         v0.9.4 feature / control notes
-THIRD_PARTY_NOTICES.md  Three.js + Elevated attribution/licensing notes
-VERSION.txt             Demo version
+GitHub Pages (public/)
+       |
+       | HTTPS + WebSocket
+       v
+Cloudflare Worker
+       |
+       | one object per world ID
+       v
+SQLite Durable Object
 ```
 
-The original ChatGPT-generated archive is reconstructed by GitHub Actions into the deployable `index.html`, `styles.css`, and `src/` tree. The split payload is an API-safe storage detail; users do not need to handle it manually.
+The client first pages through persisted events, opens a hibernatable WebSocket, and then sends idempotent mutation batches. The Durable Object commits each batch before broadcasting it. Reopening the page rebuilds the same terrain craters and damaged safe-house bodies from the event log.
 
-For the hosted build, Three.js is pinned to `0.160.0` (r160) through a versioned jsDelivr URL rather than vendoring the original ~670 KB copy. The application and physics/world code otherwise remain the v0.9.4 live site.
+## Local development
+
+Requirements: Node.js and pnpm.
+
+```bash
+pnpm install
+pnpm run check
+pnpm run dev
+```
+
+Serve `public/` separately on `http://127.0.0.1:4173`. Local clients automatically use the Worker at `http://127.0.0.1:8787`; `?api=https://example.workers.dev` overrides it.
 
 ## Deployment
 
-`.github/workflows/pages.yml` concatenates and decodes the site payload, validates key files, uploads the resulting `_site` directory as a Pages artifact, and deploys it with GitHub Pages.
+1. Run `pnpm wrangler login` and `pnpm run deploy` to deploy the Worker and its declarative SQLite Durable Object.
+2. If you deploy under a different Worker name or account, update `PRODUCTION_API_BASE` in `public/src/config.js`.
+3. Enable GitHub Pages with **Source: GitHub Actions**. `.github/workflows/pages.yml` publishes `public/` directly.
 
-After GitHub Pages is enabled for this repository with **Source: GitHub Actions**, pushes that change `.site-source/**` or the Pages workflow redeploy automatically; the workflow can also be run manually from the Actions tab.
+The Worker allows only the Pages origin and listed local development origins. There is intentionally no account login: the world is public and shared. For a production community, add identity, rate limits, moderation, snapshots, and event compaction before opening write access broadly.
+
+## Layout
+
+```text
+public/                 Static Three.js client deployed to GitHub Pages
+worker/                 Cloudflare Worker and Durable Object
+test/                   Workers Vitest integration tests
+wrangler.jsonc          Worker, CORS, and Durable Object configuration
+.github/workflows/      GitHub Pages deployment
+```
+
+Safe-house design reference: [Fallingwater — Designing Fallingwater](https://fallingwater.org/history/the-kaufmanns-fallingwater/designing-fallingwater/).

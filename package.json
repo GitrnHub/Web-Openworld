@@ -1,0 +1,21 @@
+{
+  "name": "web-openworld",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:site": "node scripts/serve-static.mjs",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "test": "vitest run --max-workers=1 --no-isolate",
+    "check": "pnpm run types && pnpm run typecheck && pnpm run test"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.124.0"
+  }
+}
